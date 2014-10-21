@@ -133,7 +133,7 @@ static pthread_t
 	Reader, Watchdog;
 static long
 	Tmp = -1,
-	Outblocksize = 0, OptSync = 0;
+	OptSync = 0;
 static unsigned long
 	Outsize = 10240, Pause = 0, Timeout = 0;
 static volatile int
@@ -1116,29 +1116,6 @@ static int requestOutputVolume(int out, const char *outfile)
 
 
 
-static int checkIncompleteOutput(int out, const char *outfile)
-{
-	static unsigned long mulretry = 0;	/* well this isn't really good design,
-					   but better than a global variable */
-	
-	debugmsg("Outblocksize = %ld, mulretry = %lu\n",Outblocksize,mulretry);
-	if ((0 != mulretry) || (0 == Outblocksize)) {
-		out = requestOutputVolume(out,outfile);
-		debugmsg("resetting outputsize to normal\n");
-		if (0 != mulretry) {
-			Outsize = mulretry;
-			mulretry = 0;
-		}
-	} else {
-		debugmsg("setting to new outputsize (end of device)\n");
-		mulretry = Outsize;
-		Outsize = Outblocksize;
-	}
-	return out;
-}
-
-
-
 static void terminateOutputThread(dest_t *d, int status)
 {
 	int err;
@@ -1288,6 +1265,7 @@ static void *outputThread(void *arg)
 		}
 		do {
 			/* use Outsize which could be the blocksize of the device (option -d) */
+			unsigned long long n = rest > Outsize ? Outsize : rest;
 			int num;
 			if (haderror) {
 				if (NumSenders == 0)
@@ -1297,7 +1275,6 @@ static void *outputThread(void *arg)
 #ifdef HAVE_SENDFILE
 			if (sendout) {
 				off_t baddr = (off_t) (Buffer[at] + blocksize - rest);
-				unsigned long long n = SetOutsize ? (rest > Outsize ? (rest/Outsize)*Outsize : rest) : rest;
 				num = sendfile(out,SFV_FD_SELF,&baddr,n);
 				debugiomsg("outputThread: sendfile(%d, SFV_FD_SELF, &(Buffer[%d] + %llu), %llu) = %d\n", out, at, blocksize - rest, n, num);
 				if ((num == -1) && ((errno == EOPNOTSUPP) || (errno == EINVAL))) {
@@ -1308,17 +1285,18 @@ static void *outputThread(void *arg)
 			} else
 #endif
 			{
-				num = write(out,Buffer[at] + blocksize - rest, rest > Outsize ? Outsize : rest);
-				debugiomsg("outputThread: writing %lld@0x%p: ret = %d\n",rest > Outsize ? Outsize : rest,Buffer[at] + blocksize - rest,num);
+				num = write(out,Buffer[at] + blocksize - rest, n);
+				debugiomsg("outputThread: writing %lld@0x%p: ret = %d\n", n, Buffer[at] + blocksize - rest, num);
 			}
-			if ((-1 == num) && (Terminal||Autoloader) && ((errno == ENOMEM) || (errno == ENOSPC))) {
-				/* request a new volume - but first check
-				 * whether we are really at the
-				 * end of the device */
-				out = checkIncompleteOutput(out,dest->name);
-				if (out == -1)
-					haderror = 1;
-				continue;
+			if (Terminal||Autoloader) {
+				if (((-1 == num) && ((errno == ENOMEM) || (errno == ENOSPC)))
+					|| (0 == num)) {
+					/* request a new volume */
+					out = requestOutputVolume(out,dest->name);
+					if (out == -1)
+						haderror = 1;
+					continue;
+				}
 			} else if (-1 == num) {
 				dest->result = strerror(errno);
 				errormsg("outputThread: error writing to %s at offset 0x%llx: %s\n",dest->arg,(long long)Blocksize*Numout+blocksize-rest,strerror(errno));
@@ -1629,7 +1607,7 @@ static const char *calcval(const char *arg, unsigned long long *res)
 		break;
 	case 2:
 		if (d <= 0)
-			return -1;
+			return "negative value out of range";
 		switch (ch) {
 		case 'k':
 		case 'K':
@@ -1686,12 +1664,14 @@ static void initDefaults()
 	size_t l;
 	int df;
 	FILE *dfstr;
+	struct stat st;
 
 	if (home == 0) {
 		warningmsg("HOME environment variable not set - unable to find defaults file\n");
 		return;
 	}
 	strncpy(dfname,home,PATH_MAX);
+	dfname[sizeof(dfname)-1] = 0;
 	l = strlen(dfname);
 	if (l + 12 > PATH_MAX) {
 		warningmsg("path to defaults file breaks PATH_MAX\n");
@@ -1706,12 +1686,22 @@ static void initDefaults()
 			warningmsg("error opening defaults file %s: %s\n",dfname,strerror(errno));
 		return;
 	}
+	if (-1 == fstat(df,&st)) {
+		warningmsg("unable to stat defaults file %s: %s\n",dfname,strerror(errno));
+		close(df);
+		return;
+	}
+	if (getuid() != st.st_uid) {
+		warningmsg("ignoring defaults file from different user\n");
+		close(df);
+		return;
+	}
 	infomsg("reading defaults file %s\n",dfname);
 	dfstr = fdopen(df,"r");
 	assert(dfstr);
 	while (!feof(dfstr)) {
 		char key[64],valuestr[64];
-		fscanf(dfstr,"%[^\n]\n",line);
+		fscanf(dfstr,"%255[^\n]\n",line);
 		char *pound = strchr(line,'#');
 		unsigned long long value;
 		int a;
@@ -2266,6 +2256,10 @@ int main(int argc, const char **argv)
 		Buffer[0] = (char *) valloc(Blocksize * Numblocks);
 		if (Buffer[0] == 0)
 			fatal("Could not allocate enough memory (%lld requested): %s\n",(unsigned long long)Blocksize * Numblocks,strerror(errno));
+#ifdef MADV_DONTFORK
+		if (-1 == madvise(Buffer[0],Blocksize * Numblocks, MADV_DONTFORK))
+			warningmsg("unable to advise memory handling of buffer: %s\n",strerror(errno));
+#endif
 	}
 	for (c = 1; c < Numblocks; c++) {
 		Buffer[c] = Buffer[0] + Blocksize * c;
@@ -2337,7 +2331,7 @@ int main(int argc, const char **argv)
 	}
 
 	debugmsg("checking if we have a controlling terminal...\n");
-	sig.sa_sigaction = SIG_IGN;
+	sig.sa_handler = SIG_IGN;
 	err = sigaction(SIGTTIN,&sig,0);
 	assert(err == 0);
 	fl = fcntl(STDERR_FILENO,F_GETFL);

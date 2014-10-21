@@ -96,7 +96,11 @@ enhances overall performance, by avoiding tape screwing.
 Same as above only for setting the transfer limit for the writer.
 .TP 
 \fB\-A\fR <\fIcmd\fP>
-the device used is an autoloader which uses \fIcmd\fP to load the next volume
+the device used is an autoloader which uses \fIcmd\fP to load the next
+volume. Pass <\fI/bin/false\fP> as an autoload command to suppress the
+warning message that appears when run without controlling terminal (e.g.
+via cron). Like this the autoload will fail and mbuffer will terminate
+with an error message when reaching the end of the tape.
 .TP 
 \fB\-a\fR <\fItime\fP>
 the device used is an autoloader which takes \fItime\fP seconds to load a new tape
