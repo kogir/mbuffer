@@ -4864,7 +4864,7 @@ if test "$ac_res" != no; then :
   test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
 
 else
-  as_fn_error $? "could not find the library containing clock_gettime!" "$LINENO" 5
+  echo as_fn_error $? "could not find the library containing clock_gettime!" "$LINENO" 5
 fi
 
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing sem_init" >&5
