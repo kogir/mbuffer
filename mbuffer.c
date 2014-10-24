@@ -36,7 +36,6 @@ typedef int caddr_t;
 #include <math.h>
 #include <netdb.h>
 #include <pthread.h>
-#include <semaphore.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -167,6 +166,12 @@ static long
 static long long
 	TickTime = 0;
 
+#ifdef __APPLE__
+#include "mac_shims.h"
+#else
+#include <semaphore.h>
+#endif
+
 #ifdef __sun
 #include <synch.h>
 #define sem_t sema_t
@@ -208,10 +213,6 @@ static volatile int SendSize = 0, ActSenders = 0;
 #include <malloc.h>
 #undef assert
 #define assert(x) ((x) || (*(char *) 0 = 1))
-#endif
-
-#ifdef __APPLE__
-#include <mbuffer_darwin.h>
 #endif
 
 static clockid_t

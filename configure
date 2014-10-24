@@ -2372,7 +2372,7 @@ test -n "$target_alias" &&
 
 
 PACKAGE=mbuffer
-VERSION=20140302
+VERSION=20140310
 
 if test "${LD_LIBRARY_PATH}" != "" ; then
 	echo ""
@@ -4864,7 +4864,8 @@ if test "$ac_res" != no; then :
   test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
 
 else
-  echo as_fn_error $? "could not find the library containing clock_gettime!" "$LINENO" 5
+  { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: could not find the library containing clock_gettime!" >&5
+$as_echo "$as_me: WARNING: could not find the library containing clock_gettime!" >&2;}
 fi
 
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing sem_init" >&5
